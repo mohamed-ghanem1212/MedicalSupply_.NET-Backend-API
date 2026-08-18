@@ -10,17 +10,17 @@ public class AuthController : ControllerBase
 {
     private readonly AuthService _authService;
 
-    public AuthController(AuthService authService) => _authService = authService;
-
-    /// <summary>
-    /// Demo login. Use any of the seeded users' emails with password "Passw0rd!"
-    /// (see README "Sample users") to obtain a bearer token for the matching role.
-    /// </summary>
-    [HttpPost("login")]
-    [ProducesResponseType(typeof(LoginResponse), StatusCodes.Status200OK)]
-    public async Task<ActionResult<LoginResponse>> Login([FromBody] LoginRequest request, CancellationToken ct)
+    public AuthController(AuthService authService)
     {
-        var result = await _authService.LoginAsync(request, ct);
+        _authService = authService;
+    }
+
+    // Demo users (password "Passw0rd!" for all):
+    // requester@company.com, manager@company.com, storekeeper@company.com, admin@company.com
+    [HttpPost("login")]
+    public ActionResult<LoginResponse> Login([FromBody] LoginRequest request)
+    {
+        var result = _authService.Login(request);
         return Ok(result);
     }
 }

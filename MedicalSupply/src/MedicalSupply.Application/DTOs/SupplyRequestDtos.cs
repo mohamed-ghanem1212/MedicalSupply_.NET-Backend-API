@@ -2,65 +2,45 @@ using MedicalSupply.Domain.Enums;
 
 namespace MedicalSupply.Application.DTOs;
 
-public record CreateSupplyRequestItemDto(int ItemId, int RequestedQuantity);
+public class CreateSupplyRequestItemDto
+{
+    public int ItemId { get; set; }
+    public int Quantity { get; set; }
+}
 
-public record CreateSupplyRequestRequest(
-    int DepartmentId,
-    string RequestedBy,
-    List<CreateSupplyRequestItemDto> Items);
+public class CreateSupplyRequestRequest
+{
+    public int DepartmentId { get; set; }
+    public string RequestedBy { get; set; } = string.Empty;
+    public List<CreateSupplyRequestItemDto> Items { get; set; } = new();
+}
 
-public record SupplyRequestItemDto(
-    int Id,
-    int ItemId,
-    string ItemCode,
-    string ItemName,
-    int RequestedQuantity,
-    int? ApprovedQuantity,
-    decimal UnitPrice,
-    decimal TotalPrice);
+public class SupplyRequestItemDto
+{
+    public int ItemId { get; set; }
+    public string ItemName { get; set; } = string.Empty;
+    public int Quantity { get; set; }
+    public decimal UnitPrice { get; set; }
+    public decimal TotalPrice { get; set; }
+}
 
-public record ApprovalRecordDto(
-    ApprovalType ApprovalType,
-    ApprovalDecision Decision,
-    string DecisionBy,
-    DateTime DecisionDate,
-    string? Comments);
+public class SupplyRequestDto
+{
+    public int Id { get; set; }
+    public string RequestNumber { get; set; } = string.Empty;
+    public int DepartmentId { get; set; }
+    public string DepartmentName { get; set; } = string.Empty;
+    public string RequestedBy { get; set; } = string.Empty;
+    public DateTime RequestDate { get; set; }
+    public SupplyRequestStatus Status { get; set; }
+    public decimal TotalAmount { get; set; }
+    public string? DecisionBy { get; set; }
+    public DateTime? DecisionDate { get; set; }
+    public string? RejectionReason { get; set; }
+    public List<SupplyRequestItemDto> Items { get; set; } = new();
+}
 
-public record SupplyRequestSummaryDto(
-    int Id,
-    string RequestNumber,
-    int DepartmentId,
-    string DepartmentName,
-    string RequestedBy,
-    DateTime RequestDate,
-    SupplyRequestStatus Status,
-    decimal TotalAmount);
-
-public record SupplyRequestDetailsDto(
-    int Id,
-    string RequestNumber,
-    int DepartmentId,
-    string DepartmentName,
-    string RequestedBy,
-    DateTime RequestDate,
-    SupplyRequestStatus Status,
-    decimal TotalAmount,
-    string? RejectionReason,
-    DateTime CreatedAt,
-    DateTime UpdatedAt,
-    bool RequiresPharmacyApproval,
-    bool RequiresFinanceApproval,
-    List<SupplyRequestItemDto> Items,
-    List<ApprovalType> RequiredApprovals,
-    List<ApprovalRecordDto> CompletedApprovals);
-
-public record SupplyRequestSearchRequest(
-    int? DepartmentId,
-    SupplyRequestStatus? Status,
-    DateTime? FromDate,
-    DateTime? ToDate,
-    int Page = 1,
-    int PageSize = 20);
-
-public record ApprovalActionRequest(ApprovalType ApprovalType, string DecisionBy, string? Comments);
-public record RejectionActionRequest(ApprovalType ApprovalType, string DecisionBy, string Reason);
+public class RejectRequest
+{
+    public string Reason { get; set; } = string.Empty;
+}

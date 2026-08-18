@@ -1,88 +1,116 @@
-using MedicalSupply.Application.Abstractions.Persistence;
-using MedicalSupply.Application.Common;
+using MedicalSupply.Application.Abstractions;
 using MedicalSupply.Application.DTOs;
-using MedicalSupply.Application.Exceptions;
 using MedicalSupply.Domain.Entities;
+using MedicalSupply.Domain.Enums;
+using MedicalSupply.Domain.Exceptions;
+using Microsoft.EntityFrameworkCore;
 
 namespace MedicalSupply.Application.Services;
 
 public class ItemService
 {
-    private readonly IUnitOfWork _uow;
+    private readonly IAppDbContext _db;
 
-    public ItemService(IUnitOfWork uow)
+    public ItemService(IAppDbContext db)
     {
-        _uow = uow;
+        _db = db;
     }
 
-    public async Task<ItemDto> CreateAsync(CreateItemRequest request, CancellationToken ct = default)
+    public async Task<ItemDto> CreateAsync(CreateItemRequest request, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(request.Code))
-            throw new ValidationAppException("Item code is required.");
+            throw new ValidationException("Code is required.");
         if (string.IsNullOrWhiteSpace(request.Name))
-            throw new ValidationAppException("Item name is required.");
+            throw new ValidationException("Name is required.");
         if (request.UnitPrice < 0)
-            throw new ValidationAppException("Unit price cannot be negative.");
+            throw new ValidationException("Unit price cannot be negative.");
         if (request.AvailableQuantity < 0)
-            throw new ValidationAppException("Available quantity cannot be negative.");
+            throw new ValidationException("Available quantity cannot be negative.");
 
-        var item = new Item(
-            request.Code,
-            request.Name,
-            request.Category,
-            request.UnitPrice,
-            request.AvailableQuantity,
-            request.RequiresPharmacyApproval,
-            request.IsControlledMedication,
-            request.IsActive);
+        var item = new Item
+        {
+            Code = request.Code,
+            Name = request.Name,
+            Category = request.Category,
+            UnitPrice = request.UnitPrice,
+            AvailableQuantity = request.AvailableQuantity,
+            IsActive = request.IsActive
+        };
 
-        _uow.Items.Add(item);
-        await _uow.SaveChangesAsync(ct);
+        _db.Items.Add(item);
+        await _db.SaveChangesAsync(ct);
 
         return ToDto(item);
     }
 
-    public async Task<ItemDto> UpdateAsync(int id, UpdateItemRequest request, CancellationToken ct = default)
+    public async Task<ItemDto> UpdateAsync(int id, UpdateItemRequest request, CancellationToken ct)
     {
-        var item = await _uow.Items.GetByIdAsync(id, ct)
-            ?? throw new NotFoundAppException(nameof(Item), id);
+        var item = await _db.Items.FindAsync(new object?[] { id }, ct)
+            ?? throw new NotFoundException($"Item {id} was not found.");
 
-        item.UpdateDetails(
-            request.Name,
-            request.Category,
-            request.UnitPrice,
-            request.RequiresPharmacyApproval,
-            request.IsControlledMedication,
-            request.IsActive);
+        if (string.IsNullOrWhiteSpace(request.Name))
+            throw new ValidationException("Name is required.");
+        if (request.UnitPrice < 0)
+            throw new ValidationException("Unit price cannot be negative.");
 
-        await _uow.SaveChangesAsync(ct);
+        item.Name = request.Name;
+        item.Category = request.Category;
+        item.UnitPrice = request.UnitPrice;
+        item.IsActive = request.IsActive;
+
+        await _db.SaveChangesAsync(ct);
         return ToDto(item);
     }
 
-    public async Task<ItemDto> GetByIdAsync(int id, CancellationToken ct = default)
+    public async Task<ItemDto> GetByIdAsync(int id, CancellationToken ct)
     {
-        var item = await _uow.Items.GetByIdAsync(id, ct)
-            ?? throw new NotFoundAppException(nameof(Item), id);
+        var item = await _db.Items.FindAsync(new object?[] { id }, ct)
+            ?? throw new NotFoundException($"Item {id} was not found.");
+
         return ToDto(item);
     }
 
-    public async Task<PagedResult<ItemDto>> SearchAsync(ItemSearchRequest request, CancellationToken ct = default)
+    public async Task<PagedResponse<ItemDto>> SearchAsync(
+        string? search, ItemCategory? category, int page, int pageSize, CancellationToken ct)
     {
-        var page = new PageRequest { Page = request.Page, PageSize = request.PageSize };
-        var (items, totalCount) = await _uow.Items.SearchAsync(
-            request.Search, request.Category, page.Page, page.PageSize, ct);
+        if (page < 1) page = 1;
+        if (pageSize < 1 || pageSize > 100) pageSize = 20;
 
-        return new PagedResult<ItemDto>
+        var query = _db.Items.AsQueryable();
+
+        if (!string.IsNullOrWhiteSpace(search))
+            query = query.Where(i => i.Code.Contains(search) || i.Name.Contains(search));
+
+        if (category.HasValue)
+            query = query.Where(i => i.Category == category.Value);
+
+        var totalCount = await query.CountAsync(ct);
+
+        var items = await query
+            .OrderBy(i => i.Name)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync(ct);
+
+        return new PagedResponse<ItemDto>
         {
             Items = items.Select(ToDto).ToList(),
-            Page = page.Page,
-            PageSize = page.PageSize,
+            Page = page,
+            PageSize = pageSize,
             TotalCount = totalCount
         };
     }
 
-    private static ItemDto ToDto(Item i) => new(
-        i.Id, i.Code, i.Name, i.Category, i.UnitPrice,
-        i.AvailableQuantity, i.ReservedQuantity, i.UnreservedQuantity,
-        i.RequiresPharmacyApproval, i.IsControlledMedication, i.IsActive);
+    private static ItemDto ToDto(Item i) => new()
+    {
+        Id = i.Id,
+        Code = i.Code,
+        Name = i.Name,
+        Category = i.Category,
+        UnitPrice = i.UnitPrice,
+        AvailableQuantity = i.AvailableQuantity,
+        ReservedQuantity = i.ReservedQuantity,
+        UnreservedQuantity = i.UnreservedQuantity,
+        IsActive = i.IsActive
+    };
 }

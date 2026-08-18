@@ -1,14 +1,18 @@
 namespace MedicalSupply.Application.DTOs;
 
-public record DepartmentDto(
-    int Id,
-    string Code,
-    string Name,
-    bool IsActive,
-    decimal MonthlyBudget);
+public class DepartmentDto
+{
+    public int Id { get; set; }
+    public string Code { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+    public decimal MonthlyBudget { get; set; }
+    public bool IsActive { get; set; }
+}
 
-public record CreateDepartmentRequest(
-    string Code,
-    string Name,
-    decimal MonthlyBudget,
-    bool IsActive = true);
+public class CreateDepartmentRequest
+{
+    public string Code { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+    public decimal MonthlyBudget { get; set; }
+    public bool IsActive { get; set; } = true;
+}

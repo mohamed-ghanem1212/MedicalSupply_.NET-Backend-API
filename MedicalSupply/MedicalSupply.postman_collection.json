@@ -1,267 +1,61 @@
 {
   "info": {
-    "name": "Medical Supply Request Management API",
-    "description": "Covers login for each role, department/item CRUD, and the full supply-request lifecycle (create -> submit -> approve x N -> fulfill), plus reject and cancel branches.",
+    "name": "Medical Supply API",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
-    { "key": "baseUrl", "value": "https://localhost:7000" },
+    { "key": "baseUrl", "value": "http://localhost:5000" },
     { "key": "requesterToken", "value": "" },
     { "key": "managerToken", "value": "" },
-    { "key": "pharmacistToken", "value": "" },
-    { "key": "financeToken", "value": "" },
     { "key": "storekeeperToken", "value": "" },
     { "key": "adminToken", "value": "" },
-    { "key": "departmentId", "value": "1" },
+    { "key": "requestId", "value": "1" },
     { "key": "itemId", "value": "1" },
-    { "key": "requestId", "value": "1" }
+    { "key": "departmentId", "value": "1" }
   ],
   "item": [
     {
       "name": "Auth",
       "item": [
-        {
-          "name": "Login - Requester",
-          "request": {
-            "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "url": "{{baseUrl}}/api/auth/login",
-            "body": { "mode": "raw", "raw": "{\n  \"email\": \"requester@company.com\",\n  \"password\": \"Passw0rd!\"\n}" }
-          }
-        },
-        {
-          "name": "Login - Department Manager",
-          "request": {
-            "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "url": "{{baseUrl}}/api/auth/login",
-            "body": { "mode": "raw", "raw": "{\n  \"email\": \"manager@company.com\",\n  \"password\": \"Passw0rd!\"\n}" }
-          }
-        },
-        {
-          "name": "Login - Pharmacist",
-          "request": {
-            "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "url": "{{baseUrl}}/api/auth/login",
-            "body": { "mode": "raw", "raw": "{\n  \"email\": \"pharmacist@company.com\",\n  \"password\": \"Passw0rd!\"\n}" }
-          }
-        },
-        {
-          "name": "Login - Finance Officer",
-          "request": {
-            "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "url": "{{baseUrl}}/api/auth/login",
-            "body": { "mode": "raw", "raw": "{\n  \"email\": \"finance@company.com\",\n  \"password\": \"Passw0rd!\"\n}" }
-          }
-        },
-        {
-          "name": "Login - Store Keeper",
-          "request": {
-            "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "url": "{{baseUrl}}/api/auth/login",
-            "body": { "mode": "raw", "raw": "{\n  \"email\": \"storekeeper@company.com\",\n  \"password\": \"Passw0rd!\"\n}" }
-          }
-        },
-        {
-          "name": "Login - Administrator",
-          "request": {
-            "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "url": "{{baseUrl}}/api/auth/login",
-            "body": { "mode": "raw", "raw": "{\n  \"email\": \"admin@company.com\",\n  \"password\": \"Passw0rd!\"\n}" }
-          }
-        }
+        { "name": "Login - Requester", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "url": "{{baseUrl}}/api/auth/login", "body": { "mode": "raw", "raw": "{\n  \"email\": \"requester@company.com\",\n  \"password\": \"Passw0rd!\"\n}" } } },
+        { "name": "Login - Department Manager", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "url": "{{baseUrl}}/api/auth/login", "body": { "mode": "raw", "raw": "{\n  \"email\": \"manager@company.com\",\n  \"password\": \"Passw0rd!\"\n}" } } },
+        { "name": "Login - Store Keeper", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "url": "{{baseUrl}}/api/auth/login", "body": { "mode": "raw", "raw": "{\n  \"email\": \"storekeeper@company.com\",\n  \"password\": \"Passw0rd!\"\n}" } } },
+        { "name": "Login - Administrator", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "url": "{{baseUrl}}/api/auth/login", "body": { "mode": "raw", "raw": "{\n  \"email\": \"admin@company.com\",\n  \"password\": \"Passw0rd!\"\n}" } } }
       ]
     },
     {
       "name": "Departments",
       "item": [
-        {
-          "name": "Create Department (Admin)",
-          "request": {
-            "method": "POST",
-            "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "Authorization", "value": "Bearer {{adminToken}}" }
-            ],
-            "url": "{{baseUrl}}/api/departments",
-            "body": { "mode": "raw", "raw": "{\n  \"code\": \"CARD\",\n  \"name\": \"Cardiology\",\n  \"monthlyBudget\": 12000,\n  \"isActive\": true\n}" }
-          }
-        },
-        {
-          "name": "Get Department by Id",
-          "request": {
-            "method": "GET",
-            "header": [{ "key": "Authorization", "value": "Bearer {{requesterToken}}" }],
-            "url": "{{baseUrl}}/api/departments/{{departmentId}}"
-          }
-        },
-        {
-          "name": "Get Departments",
-          "request": {
-            "method": "GET",
-            "header": [{ "key": "Authorization", "value": "Bearer {{requesterToken}}" }],
-            "url": "{{baseUrl}}/api/departments"
-          }
-        }
+        { "name": "Create Department (Admin)", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{adminToken}}" }], "url": "{{baseUrl}}/api/departments", "body": { "mode": "raw", "raw": "{\n  \"code\": \"FIN\",\n  \"name\": \"Finance\",\n  \"monthlyBudget\": 5000,\n  \"isActive\": true\n}" } } },
+        { "name": "Get Department by Id", "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{requesterToken}}" }], "url": "{{baseUrl}}/api/departments/{{departmentId}}" } },
+        { "name": "Get All Departments", "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{requesterToken}}" }], "url": "{{baseUrl}}/api/departments" } }
       ]
     },
     {
       "name": "Items",
       "item": [
-        {
-          "name": "Create Item (Admin)",
-          "request": {
-            "method": "POST",
-            "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "Authorization", "value": "Bearer {{adminToken}}" }
-            ],
-            "url": "{{baseUrl}}/api/items",
-            "body": { "mode": "raw", "raw": "{\n  \"code\": \"MED-010\",\n  \"name\": \"Ibuprofen 400mg\",\n  \"category\": 1,\n  \"unitPrice\": 9.5,\n  \"availableQuantity\": 200,\n  \"requiresPharmacyApproval\": false,\n  \"isControlledMedication\": false,\n  \"isActive\": true\n}" }
-          }
-        },
-        {
-          "name": "Update Item (Admin)",
-          "request": {
-            "method": "PUT",
-            "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "Authorization", "value": "Bearer {{adminToken}}" }
-            ],
-            "url": "{{baseUrl}}/api/items/{{itemId}}",
-            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Ibuprofen 400mg (Updated)\",\n  \"category\": 1,\n  \"unitPrice\": 10.0,\n  \"requiresPharmacyApproval\": false,\n  \"isControlledMedication\": false,\n  \"isActive\": true\n}" }
-          }
-        },
-        {
-          "name": "Get Item by Id",
-          "request": {
-            "method": "GET",
-            "header": [{ "key": "Authorization", "value": "Bearer {{requesterToken}}" }],
-            "url": "{{baseUrl}}/api/items/{{itemId}}"
-          }
-        },
-        {
-          "name": "Search Items",
-          "request": {
-            "method": "GET",
-            "header": [{ "key": "Authorization", "value": "Bearer {{requesterToken}}" }],
-            "url": "{{baseUrl}}/api/items?search=med&category=1&page=1&pageSize=20"
-          }
-        }
+        { "name": "Create Item (Admin)", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{adminToken}}" }], "url": "{{baseUrl}}/api/items", "body": { "mode": "raw", "raw": "{\n  \"code\": \"MED-010\",\n  \"name\": \"Ibuprofen 400mg\",\n  \"category\": 1,\n  \"unitPrice\": 9.5,\n  \"availableQuantity\": 200,\n  \"isActive\": true\n}" } } },
+        { "name": "Update Item (Admin)", "request": { "method": "PUT", "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{adminToken}}" }], "url": "{{baseUrl}}/api/items/{{itemId}}", "body": { "mode": "raw", "raw": "{\n  \"name\": \"Ibuprofen 400mg (Updated)\",\n  \"category\": 1,\n  \"unitPrice\": 10.0,\n  \"isActive\": true\n}" } } },
+        { "name": "Get Item by Id", "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{requesterToken}}" }], "url": "{{baseUrl}}/api/items/{{itemId}}" } },
+        { "name": "Search Items", "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{requesterToken}}" }], "url": "{{baseUrl}}/api/items?search=med&page=1&pageSize=20" } }
       ]
     },
     {
       "name": "Supply Requests - Happy Path",
       "item": [
-        {
-          "name": "1. Create Draft Request (Requester)",
-          "request": {
-            "method": "POST",
-            "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "Authorization", "value": "Bearer {{requesterToken}}" }
-            ],
-            "url": "{{baseUrl}}/api/supply-requests",
-            "body": { "mode": "raw", "raw": "{\n  \"departmentId\": 1,\n  \"requestedBy\": \"requester@company.com\",\n  \"items\": [\n    { \"itemId\": 1, \"requestedQuantity\": 5 },\n    { \"itemId\": 4, \"requestedQuantity\": 10 }\n  ]\n}" }
-          }
-        },
-        {
-          "name": "2. Get Request Details",
-          "request": {
-            "method": "GET",
-            "header": [{ "key": "Authorization", "value": "Bearer {{requesterToken}}" }],
-            "url": "{{baseUrl}}/api/supply-requests/{{requestId}}"
-          }
-        },
-        {
-          "name": "3. Search Supply Requests",
-          "request": {
-            "method": "GET",
-            "header": [{ "key": "Authorization", "value": "Bearer {{requesterToken}}" }],
-            "url": "{{baseUrl}}/api/supply-requests?departmentId=1&page=1&pageSize=20"
-          }
-        },
-        {
-          "name": "4. Submit Request (Requester)",
-          "request": {
-            "method": "POST",
-            "header": [{ "key": "Authorization", "value": "Bearer {{requesterToken}}" }],
-            "url": "{{baseUrl}}/api/supply-requests/{{requestId}}/submit"
-          }
-        },
-        {
-          "name": "5. Approve - Department Manager",
-          "request": {
-            "method": "POST",
-            "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "Authorization", "value": "Bearer {{managerToken}}" }
-            ],
-            "url": "{{baseUrl}}/api/supply-requests/{{requestId}}/approve",
-            "body": { "mode": "raw", "raw": "{\n  \"approvalType\": \"DepartmentManager\",\n  \"decisionBy\": \"manager@company.com\",\n  \"comments\": \"Approved - within department needs.\"\n}" }
-          }
-        },
-        {
-          "name": "6. Approve - Pharmacy (if required)",
-          "request": {
-            "method": "POST",
-            "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "Authorization", "value": "Bearer {{pharmacistToken}}" }
-            ],
-            "url": "{{baseUrl}}/api/supply-requests/{{requestId}}/approve",
-            "body": { "mode": "raw", "raw": "{\n  \"approvalType\": \"Pharmacy\",\n  \"decisionBy\": \"pharmacist@company.com\",\n  \"comments\": \"Medication quantities reviewed.\"\n}" }
-          }
-        },
-        {
-          "name": "7. Approve - Finance (if required)",
-          "request": {
-            "method": "POST",
-            "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "Authorization", "value": "Bearer {{financeToken}}" }
-            ],
-            "url": "{{baseUrl}}/api/supply-requests/{{requestId}}/approve",
-            "body": { "mode": "raw", "raw": "{\n  \"approvalType\": \"Finance\",\n  \"decisionBy\": \"finance@company.com\",\n  \"comments\": \"Within budget.\"\n}" }
-          }
-        },
-        {
-          "name": "8. Fulfill Request (Store Keeper)",
-          "request": {
-            "method": "POST",
-            "header": [{ "key": "Authorization", "value": "Bearer {{storekeeperToken}}" }],
-            "url": "{{baseUrl}}/api/supply-requests/{{requestId}}/fulfill"
-          }
-        }
+        { "name": "1. Create Draft Request", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{requesterToken}}" }], "url": "{{baseUrl}}/api/supply-requests", "body": { "mode": "raw", "raw": "{\n  \"departmentId\": 1,\n  \"requestedBy\": \"requester@company.com\",\n  \"items\": [\n    { \"itemId\": 1, \"quantity\": 5 },\n    { \"itemId\": 3, \"quantity\": 10 }\n  ]\n}" } } },
+        { "name": "2. Get Request Details", "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{requesterToken}}" }], "url": "{{baseUrl}}/api/supply-requests/{{requestId}}" } },
+        { "name": "3. Search Requests", "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{requesterToken}}" }], "url": "{{baseUrl}}/api/supply-requests?departmentId=1&page=1&pageSize=20" } },
+        { "name": "4. Submit Request", "request": { "method": "POST", "header": [{ "key": "Authorization", "value": "Bearer {{requesterToken}}" }], "url": "{{baseUrl}}/api/supply-requests/{{requestId}}/submit" } },
+        { "name": "5. Approve Request (Manager)", "request": { "method": "POST", "header": [{ "key": "Authorization", "value": "Bearer {{managerToken}}" }], "url": "{{baseUrl}}/api/supply-requests/{{requestId}}/approve" } },
+        { "name": "6. Fulfill Request (Store Keeper)", "request": { "method": "POST", "header": [{ "key": "Authorization", "value": "Bearer {{storekeeperToken}}" }], "url": "{{baseUrl}}/api/supply-requests/{{requestId}}/fulfill" } }
       ]
     },
     {
       "name": "Supply Requests - Alternate Branches",
       "item": [
-        {
-          "name": "Reject Request (Finance)",
-          "request": {
-            "method": "POST",
-            "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "Authorization", "value": "Bearer {{financeToken}}" }
-            ],
-            "url": "{{baseUrl}}/api/supply-requests/{{requestId}}/reject",
-            "body": { "mode": "raw", "raw": "{\n  \"approvalType\": \"Finance\",\n  \"decisionBy\": \"finance@company.com\",\n  \"reason\": \"The request exceeds the approved budget.\"\n}" }
-          }
-        },
-        {
-          "name": "Cancel Request",
-          "request": {
-            "method": "POST",
-            "header": [{ "key": "Authorization", "value": "Bearer {{requesterToken}}" }],
-            "url": "{{baseUrl}}/api/supply-requests/{{requestId}}/cancel"
-          }
-        }
+        { "name": "Reject Request (Manager)", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{managerToken}}" }], "url": "{{baseUrl}}/api/supply-requests/{{requestId}}/reject", "body": { "mode": "raw", "raw": "{\n  \"reason\": \"Not enough justification provided.\"\n}" } } },
+        { "name": "Cancel Request", "request": { "method": "POST", "header": [{ "key": "Authorization", "value": "Bearer {{requesterToken}}" }], "url": "{{baseUrl}}/api/supply-requests/{{requestId}}/cancel" } }
       ]
     }
   ]

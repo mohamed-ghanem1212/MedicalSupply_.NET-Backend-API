@@ -2,39 +2,33 @@ using MedicalSupply.Domain.Enums;
 
 namespace MedicalSupply.Application.DTOs;
 
-public record ItemDto(
-    int Id,
-    string Code,
-    string Name,
-    ItemCategory Category,
-    decimal UnitPrice,
-    int AvailableQuantity,
-    int ReservedQuantity,
-    int UnreservedQuantity,
-    bool RequiresPharmacyApproval,
-    bool IsControlledMedication,
-    bool IsActive);
+public class ItemDto
+{
+    public int Id { get; set; }
+    public string Code { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+    public ItemCategory Category { get; set; }
+    public decimal UnitPrice { get; set; }
+    public int AvailableQuantity { get; set; }
+    public int ReservedQuantity { get; set; }
+    public int UnreservedQuantity { get; set; }
+    public bool IsActive { get; set; }
+}
 
-public record CreateItemRequest(
-    string Code,
-    string Name,
-    ItemCategory Category,
-    decimal UnitPrice,
-    int AvailableQuantity,
-    bool RequiresPharmacyApproval,
-    bool IsControlledMedication,
-    bool IsActive = true);
+public class CreateItemRequest
+{
+    public string Code { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+    public ItemCategory Category { get; set; }
+    public decimal UnitPrice { get; set; }
+    public int AvailableQuantity { get; set; }
+    public bool IsActive { get; set; } = true;
+}
 
-public record UpdateItemRequest(
-    string Name,
-    ItemCategory Category,
-    decimal UnitPrice,
-    bool RequiresPharmacyApproval,
-    bool IsControlledMedication,
-    bool IsActive);
-
-public record ItemSearchRequest(
-    string? Search,
-    ItemCategory? Category,
-    int Page = 1,
-    int PageSize = 20);
+public class UpdateItemRequest
+{
+    public string Name { get; set; } = string.Empty;
+    public ItemCategory Category { get; set; }
+    public decimal UnitPrice { get; set; }
+    public bool IsActive { get; set; }
+}

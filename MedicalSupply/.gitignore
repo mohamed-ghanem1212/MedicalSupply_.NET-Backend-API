@@ -1,33 +1,10 @@
-## .NET
 bin/
 obj/
-out/
-
-## Visual Studio / Rider / VS Code
 .vs/
 .vscode/
 .idea/
 *.user
-*.suo
-
-## Build results
-[Dd]ebug/
-[Rr]elease/
-x64/
-x86/
-
-## SQLite local database (created at runtime by the seeder)
 *.db
 *.db-shm
 *.db-wal
-
-## User secrets / local overrides
 appsettings.Local.json
-secrets.json
-
-## OS files
-.DS_Store
-Thumbs.db
-
-## Logs
-*.log

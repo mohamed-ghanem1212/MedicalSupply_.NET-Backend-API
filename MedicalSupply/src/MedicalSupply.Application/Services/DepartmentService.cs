@@ -1,48 +1,63 @@
-using MedicalSupply.Application.Abstractions.Persistence;
+using MedicalSupply.Application.Abstractions;
 using MedicalSupply.Application.DTOs;
-using MedicalSupply.Application.Exceptions;
 using MedicalSupply.Domain.Entities;
+using MedicalSupply.Domain.Exceptions;
+using Microsoft.EntityFrameworkCore;
 
 namespace MedicalSupply.Application.Services;
 
 public class DepartmentService
 {
-    private readonly IUnitOfWork _uow;
+    private readonly IAppDbContext _db;
 
-    public DepartmentService(IUnitOfWork uow)
+    public DepartmentService(IAppDbContext db)
     {
-        _uow = uow;
+        _db = db;
     }
 
-    public async Task<DepartmentDto> CreateAsync(CreateDepartmentRequest request, CancellationToken ct = default)
+    public async Task<DepartmentDto> CreateAsync(CreateDepartmentRequest request, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(request.Code))
-            throw new ValidationAppException("Department code is required.");
+            throw new ValidationException("Code is required.");
         if (string.IsNullOrWhiteSpace(request.Name))
-            throw new ValidationAppException("Department name is required.");
+            throw new ValidationException("Name is required.");
         if (request.MonthlyBudget < 0)
-            throw new ValidationAppException("Monthly budget cannot be negative.");
+            throw new ValidationException("Monthly budget cannot be negative.");
 
-        var department = new Department(request.Code, request.Name, request.MonthlyBudget, request.IsActive);
-        _uow.Departments.Add(department);
-        await _uow.SaveChangesAsync(ct);
+        var department = new Department
+        {
+            Code = request.Code,
+            Name = request.Name,
+            MonthlyBudget = request.MonthlyBudget,
+            IsActive = request.IsActive
+        };
+
+        _db.Departments.Add(department);
+        await _db.SaveChangesAsync(ct);
 
         return ToDto(department);
     }
 
-    public async Task<DepartmentDto> GetByIdAsync(int id, CancellationToken ct = default)
+    public async Task<DepartmentDto> GetByIdAsync(int id, CancellationToken ct)
     {
-        var department = await _uow.Departments.GetByIdAsync(id, ct)
-            ?? throw new NotFoundAppException(nameof(Department), id);
+        var department = await _db.Departments.FindAsync(new object?[] { id }, ct)
+            ?? throw new NotFoundException($"Department {id} was not found.");
+
         return ToDto(department);
     }
 
-    public async Task<List<DepartmentDto>> GetAllAsync(CancellationToken ct = default)
+    public async Task<List<DepartmentDto>> GetAllAsync(CancellationToken ct)
     {
-        var departments = await _uow.Departments.GetAllAsync(ct);
+        var departments = await _db.Departments.OrderBy(d => d.Name).ToListAsync(ct);
         return departments.Select(ToDto).ToList();
     }
 
-    private static DepartmentDto ToDto(Department d) =>
-        new(d.Id, d.Code, d.Name, d.IsActive, d.MonthlyBudget);
+    private static DepartmentDto ToDto(Department d) => new()
+    {
+        Id = d.Id,
+        Code = d.Code,
+        Name = d.Name,
+        MonthlyBudget = d.MonthlyBudget,
+        IsActive = d.IsActive
+    };
 }

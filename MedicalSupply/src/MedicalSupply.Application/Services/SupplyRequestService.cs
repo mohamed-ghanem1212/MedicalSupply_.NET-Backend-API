@@ -1,308 +1,305 @@
-using MedicalSupply.Application.Abstractions.Persistence;
-using MedicalSupply.Application.Abstractions.Security;
-using MedicalSupply.Application.Abstractions.Services;
-using MedicalSupply.Application.Common;
+using MedicalSupply.Application.Abstractions;
 using MedicalSupply.Application.DTOs;
-using MedicalSupply.Application.Exceptions;
 using MedicalSupply.Domain.Entities;
 using MedicalSupply.Domain.Enums;
 using MedicalSupply.Domain.Exceptions;
+using Microsoft.EntityFrameworkCore;
 
 namespace MedicalSupply.Application.Services;
 
 public class SupplyRequestService
 {
-    private readonly IUnitOfWork _uow;
-    private readonly ICurrentUserService _currentUser;
-    private readonly IDateTimeProvider _clock;
-    private readonly IRequestNumberGenerator _requestNumberGenerator;
+    private readonly IAppDbContext _db;
 
-    public SupplyRequestService(
-        IUnitOfWork uow,
-        ICurrentUserService currentUser,
-        IDateTimeProvider clock,
-        IRequestNumberGenerator requestNumberGenerator)
+    public SupplyRequestService(IAppDbContext db)
     {
-        _uow = uow;
-        _currentUser = currentUser;
-        _clock = clock;
-        _requestNumberGenerator = requestNumberGenerator;
+        _db = db;
     }
 
-    // ---------------------------------------------------------------
-    // 5.1 Creation
-    // ---------------------------------------------------------------
-    public async Task<SupplyRequestDetailsDto> CreateDraftAsync(
-        CreateSupplyRequestRequest request, CancellationToken ct = default)
-    {
-        AuthorizationGuard.Require(_currentUser, UserRole.Requester);
+    // ---------------- Create ----------------
 
-        if (request.Items is null || request.Items.Count == 0)
-            throw new ValidationAppException("A request must contain at least one item.");
-        if (request.Items.Any(i => i.RequestedQuantity <= 0))
-            throw new ValidationAppException("The requested quantity for every item must be greater than zero.");
+    public async Task<SupplyRequestDto> CreateAsync(CreateSupplyRequestRequest request, CancellationToken ct)
+    {
+        if (request.Items.Count == 0)
+            throw new ValidationException("A request must contain at least one item.");
+
+        if (request.Items.Any(i => i.Quantity <= 0))
+            throw new ValidationException("Every item quantity must be greater than zero.");
+
         if (request.Items.Select(i => i.ItemId).Distinct().Count() != request.Items.Count)
-            throw new ValidationAppException("The same item must not be added more than once to the same request.");
+            throw new ValidationException("The same item cannot be added twice to one request.");
 
-        var department = await _uow.Departments.GetByIdAsync(request.DepartmentId, ct)
-            ?? throw new NotFoundAppException(nameof(Department), request.DepartmentId);
+        var department = await _db.Departments.FindAsync(new object?[] { request.DepartmentId }, ct)
+            ?? throw new NotFoundException($"Department {request.DepartmentId} was not found.");
+
         if (!department.IsActive)
-            throw new ValidationAppException("The selected department is not active.");
+            throw new ValidationException("This department is not active.");
 
-        var itemIds = request.Items.Select(i => i.ItemId).ToList();
-        var items = await _uow.Items.GetByIdsAsync(itemIds, ct);
-        var itemsById = items.ToDictionary(i => i.Id);
+        var supplyRequest = new SupplyRequest
+        {
+            RequestNumber = await GenerateRequestNumberAsync(ct),
+            DepartmentId = department.Id,
+            RequestedBy = request.RequestedBy,
+            RequestDate = DateTime.UtcNow,
+            Status = SupplyRequestStatus.Draft,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+
+        decimal total = 0;
 
         foreach (var line in request.Items)
         {
-            if (!itemsById.TryGetValue(line.ItemId, out var item))
-                throw new NotFoundAppException(nameof(Item), line.ItemId);
+            var item = await _db.Items.FindAsync(new object?[] { line.ItemId }, ct)
+                ?? throw new NotFoundException($"Item {line.ItemId} was not found.");
+
             if (!item.IsActive)
-                throw new ValidationAppException($"Item '{item.Code}' is not active.");
+                throw new ValidationException($"Item '{item.Code}' is not active.");
+
+            var lineTotal = item.UnitPrice * line.Quantity;
+            total += lineTotal;
+
+            supplyRequest.Items.Add(new SupplyRequestItem
+            {
+                ItemId = item.Id,
+                Quantity = line.Quantity,
+                UnitPrice = item.UnitPrice,
+                TotalPrice = lineTotal
+            });
         }
 
-        var requestNumber = await _requestNumberGenerator.GenerateAsync(_clock.UtcNow, ct);
-        var supplyRequest = new SupplyRequest(requestNumber, department.Id, request.RequestedBy, _clock.UtcNow);
+        supplyRequest.TotalAmount = total;
+
+        _db.SupplyRequests.Add(supplyRequest);
+        await _db.SaveChangesAsync(ct);
+
+        return await GetByIdAsync(supplyRequest.Id, ct);
+    }
+
+    private async Task<string> GenerateRequestNumberAsync(CancellationToken ct)
+    {
+        var year = DateTime.UtcNow.Year;
+        var prefix = $"SR-{year}-";
+        var countThisYear = await _db.SupplyRequests.CountAsync(r => r.RequestNumber.StartsWith(prefix), ct);
+        return $"{prefix}{(countThisYear + 1):D6}";
+    }
+
+    // ---------------- Submit ----------------
+
+    public async Task<SupplyRequestDto> SubmitAsync(int id, CancellationToken ct)
+    {
+        var request = await FindRequestAsync(id, ct);
+
+        if (request.Status != SupplyRequestStatus.Draft)
+            throw new ConflictException("Only a Draft request can be submitted.");
+
+        request.Status = SupplyRequestStatus.Submitted;
+        request.UpdatedAt = DateTime.UtcNow;
+
+        await _db.SaveChangesAsync(ct);
+        return await GetByIdAsync(id, ct);
+    }
+
+    // ---------------- Approve ----------------
+
+    public async Task<SupplyRequestDto> ApproveAsync(int id, string approverEmail, CancellationToken ct)
+    {
+        var request = await FindRequestAsync(id, ct);
+
+        if (request.Status != SupplyRequestStatus.Submitted)
+            throw new ConflictException("Only a Submitted request can be approved.");
+
+        // Re-check and reserve stock for every item. If any item no longer has
+        // enough stock, nothing is saved - EF Core's SaveChanges is all-or-nothing.
+        foreach (var line in request.Items)
+        {
+            var item = await _db.Items.FindAsync(new object?[] { line.ItemId }, ct)
+                ?? throw new NotFoundException($"Item {line.ItemId} was not found.");
+
+            if (line.Quantity > item.UnreservedQuantity)
+                throw new ConflictException(
+                    $"Not enough stock for '{item.Name}'. Available: {item.UnreservedQuantity}, requested: {line.Quantity}.");
+
+            item.ReservedQuantity += line.Quantity;
+            item.Version++;
+        }
+
+        request.Status = SupplyRequestStatus.Approved;
+        request.DecisionBy = approverEmail;
+        request.DecisionDate = DateTime.UtcNow;
+        request.UpdatedAt = DateTime.UtcNow;
+
+        try
+        {
+            await _db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            throw new ConflictException("Stock changed while approving this request. Please try again.");
+        }
+
+        return await GetByIdAsync(id, ct);
+    }
+
+    // ---------------- Reject ----------------
+
+    public async Task<SupplyRequestDto> RejectAsync(int id, string approverEmail, string reason, CancellationToken ct)
+    {
+        var request = await FindRequestAsync(id, ct);
+
+        if (request.Status != SupplyRequestStatus.Submitted)
+            throw new ConflictException("Only a Submitted request can be rejected.");
+
+        if (string.IsNullOrWhiteSpace(reason))
+            throw new ValidationException("A rejection reason is required.");
+
+        request.Status = SupplyRequestStatus.Rejected;
+        request.DecisionBy = approverEmail;
+        request.DecisionDate = DateTime.UtcNow;
+        request.RejectionReason = reason;
+        request.UpdatedAt = DateTime.UtcNow;
+
+        await _db.SaveChangesAsync(ct);
+        return await GetByIdAsync(id, ct);
+    }
+
+    // ---------------- Cancel ----------------
+
+    public async Task<SupplyRequestDto> CancelAsync(int id, CancellationToken ct)
+    {
+        var request = await FindRequestAsync(id, ct);
+
+        var cancellable = request.Status is SupplyRequestStatus.Draft
+            or SupplyRequestStatus.Submitted
+            or SupplyRequestStatus.Approved;
+
+        if (!cancellable)
+            throw new ConflictException($"A request in {request.Status} status cannot be cancelled.");
+
+        // If it was already approved, release the stock that was reserved for it.
+        if (request.Status == SupplyRequestStatus.Approved)
+        {
+            foreach (var line in request.Items)
+            {
+                var item = await _db.Items.FindAsync(new object?[] { line.ItemId }, ct);
+                if (item is not null)
+                {
+                    item.ReservedQuantity -= line.Quantity;
+                    item.Version++;
+                }
+            }
+        }
+
+        request.Status = SupplyRequestStatus.Cancelled;
+        request.UpdatedAt = DateTime.UtcNow;
+
+        await _db.SaveChangesAsync(ct);
+        return await GetByIdAsync(id, ct);
+    }
+
+    // ---------------- Fulfill ----------------
+
+    public async Task<SupplyRequestDto> FulfillAsync(int id, CancellationToken ct)
+    {
+        var request = await FindRequestAsync(id, ct);
+
+        if (request.Status != SupplyRequestStatus.Approved)
+            throw new ConflictException("Only an Approved request can be fulfilled.");
 
         foreach (var line in request.Items)
         {
-            var item = itemsById[line.ItemId];
-            supplyRequest.AddItem(item.Id, line.RequestedQuantity, item.UnitPrice);
+            var item = await _db.Items.FindAsync(new object?[] { line.ItemId }, ct)
+                ?? throw new NotFoundException($"Item {line.ItemId} was not found.");
+
+            item.ReservedQuantity -= line.Quantity;
+            item.AvailableQuantity -= line.Quantity;
+            item.Version++;
         }
 
-        _uow.SupplyRequests.Add(supplyRequest);
-        await _uow.SaveChangesAsync(ct);
+        request.Status = SupplyRequestStatus.Fulfilled;
+        request.UpdatedAt = DateTime.UtcNow;
 
-        return await BuildDetailsDtoAsync(supplyRequest, ct);
+        await _db.SaveChangesAsync(ct);
+        return await GetByIdAsync(id, ct);
     }
 
-    // ---------------------------------------------------------------
-    // 5.2 Submission
-    // ---------------------------------------------------------------
-    public async Task<SupplyRequestDetailsDto> SubmitAsync(int id, CancellationToken ct = default)
+    // ---------------- Read ----------------
+
+    public async Task<SupplyRequestDto> GetByIdAsync(int id, CancellationToken ct)
     {
-        AuthorizationGuard.Require(_currentUser, UserRole.Requester);
+        var request = await _db.SupplyRequests
+            .Include(r => r.Department)
+            .Include(r => r.Items).ThenInclude(i => i.Item)
+            .FirstOrDefaultAsync(r => r.Id == id, ct)
+            ?? throw new NotFoundException($"Supply request {id} was not found.");
 
-        var supplyRequest = await _uow.SupplyRequests.GetByIdAsync(id, ct)
-            ?? throw new NotFoundAppException(nameof(SupplyRequest), id);
-
-        var itemIds = supplyRequest.Items.Select(i => i.ItemId);
-        var items = await _uow.Items.GetByIdsAsync(itemIds, ct);
-        var anyRequiresPharmacy = items.Any(i => i.RequiresPharmacyApproval || i.IsControlledMedication);
-
-        var committed = await _uow.Departments.GetCommittedAmountAsync(
-            supplyRequest.DepartmentId, excludeRequestId: supplyRequest.Id, ct);
-        var department = await _uow.Departments.GetByIdAsync(supplyRequest.DepartmentId, ct)
-            ?? throw new NotFoundAppException(nameof(Department), supplyRequest.DepartmentId);
-        var remainingBudget = department.GetRemainingBudget(committed);
-
-        supplyRequest.Submit(anyRequiresPharmacy, remainingBudget, _clock.UtcNow);
-
-        await _uow.SaveChangesAsync(ct);
-        return await BuildDetailsDtoAsync(supplyRequest, ct);
+        return ToDto(request);
     }
 
-    // ---------------------------------------------------------------
-    // 5.3 Approval flow (approve)
-    // ---------------------------------------------------------------
-    public async Task<SupplyRequestDetailsDto> ApproveAsync(
-        int id, ApprovalActionRequest request, CancellationToken ct = default)
+    public async Task<PagedResponse<SupplyRequestDto>> SearchAsync(
+        int? departmentId, SupplyRequestStatus? status, int page, int pageSize, CancellationToken ct)
     {
-        RequireRoleForApprovalType(request.ApprovalType);
+        if (page < 1) page = 1;
+        if (pageSize < 1 || pageSize > 100) pageSize = 20;
 
-        // decisionBy is taken from the authenticated caller, never trusted from the body.
-        var decisionBy = _currentUser.Email;
+        var query = _db.SupplyRequests
+            .Include(r => r.Department)
+            .Include(r => r.Items).ThenInclude(i => i.Item)
+            .AsQueryable();
 
-        return await _uow.ExecuteInTransactionAsync(async innerCt =>
+        if (departmentId.HasValue)
+            query = query.Where(r => r.DepartmentId == departmentId.Value);
+
+        if (status.HasValue)
+            query = query.Where(r => r.Status == status.Value);
+
+        var totalCount = await query.CountAsync(ct);
+
+        var requests = await query
+            .OrderByDescending(r => r.RequestDate)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync(ct);
+
+        return new PagedResponse<SupplyRequestDto>
         {
-            var supplyRequest = await _uow.SupplyRequests.GetByIdAsync(id, innerCt)
-                ?? throw new NotFoundAppException(nameof(SupplyRequest), id);
-
-            var fullyApproved = supplyRequest.ProcessApprovalDecision(
-                request.ApprovalType, ApprovalDecision.Approved, decisionBy, request.Comments, _clock.UtcNow);
-
-            if (fullyApproved)
-            {
-                // 5.4 / 5.5 — revalidate and reserve stock for every line item atomically.
-                var itemIds = supplyRequest.Items.Select(i => i.ItemId);
-                var items = await _uow.Items.GetByIdsAsync(itemIds, innerCt);
-                var itemsById = items.ToDictionary(i => i.Id);
-
-                foreach (var line in supplyRequest.Items)
-                {
-                    var item = itemsById[line.ItemId];
-                    item.Reserve(line.RequestedQuantity); // throws InsufficientStockException -> rolls back whole op
-                }
-
-                supplyRequest.MarkApproved(_clock.UtcNow);
-            }
-
-            await _uow.SaveChangesAsync(innerCt);
-            return await BuildDetailsDtoAsync(supplyRequest, innerCt);
-        }, ct);
-    }
-
-    // ---------------------------------------------------------------
-    // 5.3 Approval flow (reject)
-    // ---------------------------------------------------------------
-    public async Task<SupplyRequestDetailsDto> RejectAsync(
-        int id, RejectionActionRequest request, CancellationToken ct = default)
-    {
-        RequireRoleForApprovalType(request.ApprovalType);
-        var decisionBy = _currentUser.Email;
-
-        var supplyRequest = await _uow.SupplyRequests.GetByIdAsync(id, ct)
-            ?? throw new NotFoundAppException(nameof(SupplyRequest), id);
-
-        supplyRequest.ProcessApprovalDecision(
-            request.ApprovalType, ApprovalDecision.Rejected, decisionBy, request.Reason, _clock.UtcNow);
-
-        await _uow.SaveChangesAsync(ct);
-        return await BuildDetailsDtoAsync(supplyRequest, ct);
-    }
-
-    // ---------------------------------------------------------------
-    // 5.6 Cancellation
-    // ---------------------------------------------------------------
-    public async Task<SupplyRequestDetailsDto> CancelAsync(int id, CancellationToken ct = default)
-    {
-        AuthorizationGuard.Require(_currentUser, UserRole.Requester, UserRole.DepartmentManager);
-
-        return await _uow.ExecuteInTransactionAsync(async innerCt =>
-        {
-            var supplyRequest = await _uow.SupplyRequests.GetByIdAsync(id, innerCt)
-                ?? throw new NotFoundAppException(nameof(SupplyRequest), id);
-
-            var wasApproved = supplyRequest.Status == SupplyRequestStatus.Approved;
-
-            supplyRequest.Cancel(_clock.UtcNow);
-
-            if (wasApproved)
-            {
-                var itemIds = supplyRequest.Items.Select(i => i.ItemId);
-                var items = await _uow.Items.GetByIdsAsync(itemIds, innerCt);
-                var itemsById = items.ToDictionary(i => i.Id);
-
-                foreach (var line in supplyRequest.Items)
-                {
-                    itemsById[line.ItemId].ReleaseReservation(line.RequestedQuantity);
-                }
-            }
-
-            await _uow.SaveChangesAsync(innerCt);
-            return await BuildDetailsDtoAsync(supplyRequest, innerCt);
-        }, ct);
-    }
-
-    // ---------------------------------------------------------------
-    // 5.7 Fulfillment
-    // ---------------------------------------------------------------
-    public async Task<SupplyRequestDetailsDto> FulfillAsync(int id, CancellationToken ct = default)
-    {
-        AuthorizationGuard.Require(_currentUser, UserRole.StoreKeeper);
-
-        return await _uow.ExecuteInTransactionAsync(async innerCt =>
-        {
-            var supplyRequest = await _uow.SupplyRequests.GetByIdAsync(id, innerCt)
-                ?? throw new NotFoundAppException(nameof(SupplyRequest), id);
-
-            supplyRequest.MarkFulfilled(_clock.UtcNow); // throws if not Approved -> also blocks double-fulfillment
-
-            var itemIds = supplyRequest.Items.Select(i => i.ItemId);
-            var items = await _uow.Items.GetByIdsAsync(itemIds, innerCt);
-            var itemsById = items.ToDictionary(i => i.Id);
-
-            foreach (var line in supplyRequest.Items)
-            {
-                var quantity = line.ApprovedQuantity ?? line.RequestedQuantity;
-                itemsById[line.ItemId].Fulfill(quantity);
-            }
-
-            await _uow.SaveChangesAsync(innerCt);
-            return await BuildDetailsDtoAsync(supplyRequest, innerCt);
-        }, ct);
-    }
-
-    // ---------------------------------------------------------------
-    // Queries
-    // ---------------------------------------------------------------
-    public async Task<SupplyRequestDetailsDto> GetByIdAsync(int id, CancellationToken ct = default)
-    {
-        var supplyRequest = await _uow.SupplyRequests.GetByIdAsync(id, ct)
-            ?? throw new NotFoundAppException(nameof(SupplyRequest), id);
-        return await BuildDetailsDtoAsync(supplyRequest, ct);
-    }
-
-    public async Task<PagedResult<SupplyRequestSummaryDto>> SearchAsync(
-        SupplyRequestSearchRequest request, CancellationToken ct = default)
-    {
-        var page = new PageRequest { Page = request.Page, PageSize = request.PageSize };
-        var (requests, totalCount) = await _uow.SupplyRequests.SearchAsync(
-            request.DepartmentId, request.Status, request.FromDate, request.ToDate,
-            page.Page, page.PageSize, ct);
-
-        var departmentIds = requests.Select(r => r.DepartmentId).Distinct().ToList();
-        var departments = new Dictionary<int, Department>();
-        foreach (var depId in departmentIds)
-        {
-            var dep = await _uow.Departments.GetByIdAsync(depId, ct);
-            if (dep is not null) departments[depId] = dep;
-        }
-
-        var items = requests.Select(r => new SupplyRequestSummaryDto(
-            r.Id, r.RequestNumber, r.DepartmentId,
-            departments.TryGetValue(r.DepartmentId, out var dep) ? dep.Name : "Unknown",
-            r.RequestedBy, r.RequestDate, r.Status, r.TotalAmount)).ToList();
-
-        return new PagedResult<SupplyRequestSummaryDto>
-        {
-            Items = items,
-            Page = page.Page,
-            PageSize = page.PageSize,
+            Items = requests.Select(ToDto).ToList(),
+            Page = page,
+            PageSize = pageSize,
             TotalCount = totalCount
         };
     }
 
-    // ---------------------------------------------------------------
-    // Helpers
-    // ---------------------------------------------------------------
-    private void RequireRoleForApprovalType(ApprovalType approvalType)
+    // ---------------- Helpers ----------------
+
+    private async Task<SupplyRequest> FindRequestAsync(int id, CancellationToken ct)
     {
-        var requiredRole = approvalType switch
+        return await _db.SupplyRequests
+            .Include(r => r.Items)
+            .FirstOrDefaultAsync(r => r.Id == id, ct)
+            ?? throw new NotFoundException($"Supply request {id} was not found.");
+    }
+
+    private static SupplyRequestDto ToDto(SupplyRequest r) => new()
+    {
+        Id = r.Id,
+        RequestNumber = r.RequestNumber,
+        DepartmentId = r.DepartmentId,
+        DepartmentName = r.Department?.Name ?? string.Empty,
+        RequestedBy = r.RequestedBy,
+        RequestDate = r.RequestDate,
+        Status = r.Status,
+        TotalAmount = r.TotalAmount,
+        DecisionBy = r.DecisionBy,
+        DecisionDate = r.DecisionDate,
+        RejectionReason = r.RejectionReason,
+        Items = r.Items.Select(i => new SupplyRequestItemDto
         {
-            ApprovalType.DepartmentManager => UserRole.DepartmentManager,
-            ApprovalType.Pharmacy => UserRole.Pharmacist,
-            ApprovalType.Finance => UserRole.FinanceOfficer,
-            _ => throw new ValidationAppException("Unknown approval type.")
-        };
-
-        AuthorizationGuard.Require(_currentUser, requiredRole);
-    }
-
-    private async Task<SupplyRequestDetailsDto> BuildDetailsDtoAsync(SupplyRequest r, CancellationToken ct)
-    {
-        var department = await _uow.Departments.GetByIdAsync(r.DepartmentId, ct);
-        var itemIds = r.Items.Select(i => i.ItemId);
-        var items = await _uow.Items.GetByIdsAsync(itemIds, ct);
-        var itemsById = items.ToDictionary(i => i.Id);
-
-        var requiredApprovals = new List<ApprovalType> { ApprovalType.DepartmentManager };
-        if (r.RequiresPharmacyApproval) requiredApprovals.Add(ApprovalType.Pharmacy);
-        if (r.RequiresFinanceApproval) requiredApprovals.Add(ApprovalType.Finance);
-
-        return new SupplyRequestDetailsDto(
-            r.Id, r.RequestNumber, r.DepartmentId, department?.Name ?? "Unknown",
-            r.RequestedBy, r.RequestDate, r.Status, r.TotalAmount, r.RejectionReason,
-            r.CreatedAt, r.UpdatedAt, r.RequiresPharmacyApproval, r.RequiresFinanceApproval,
-            r.Items.Select(i =>
-            {
-                itemsById.TryGetValue(i.ItemId, out var item);
-                return new SupplyRequestItemDto(
-                    i.Id, i.ItemId, item?.Code ?? "", item?.Name ?? "",
-                    i.RequestedQuantity, i.ApprovedQuantity, i.UnitPrice, i.TotalPrice);
-            }).ToList(),
-            requiredApprovals,
-            r.ApprovalRecords.Select(a => new ApprovalRecordDto(
-                a.ApprovalType, a.Decision, a.DecisionBy, a.DecisionDate, a.Comments)).ToList());
-    }
+            ItemId = i.ItemId,
+            ItemName = i.Item?.Name ?? string.Empty,
+            Quantity = i.Quantity,
+            UnitPrice = i.UnitPrice,
+            TotalPrice = i.TotalPrice
+        }).ToList()
+    };
 }

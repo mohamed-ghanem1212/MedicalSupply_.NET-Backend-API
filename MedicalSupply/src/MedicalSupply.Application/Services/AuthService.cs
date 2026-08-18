@@ -1,8 +1,8 @@
 using System.Security.Cryptography;
 using System.Text;
-using MedicalSupply.Application.Abstractions.Security;
+using MedicalSupply.Application.Abstractions;
 using MedicalSupply.Application.DTOs;
-using MedicalSupply.Application.Exceptions;
+using MedicalSupply.Domain.Exceptions;
 
 namespace MedicalSupply.Application.Services;
 
@@ -17,19 +17,22 @@ public class AuthService
         _tokenService = tokenService;
     }
 
-    public Task<LoginResponse> LoginAsync(LoginRequest request, CancellationToken ct = default)
+    public LoginResponse Login(LoginRequest request)
     {
         var user = _userDirectory.FindByEmail(request.Email);
-        if (user is null || !VerifyPassword(request.Password, user.PasswordHash))
-            throw new ValidationAppException("Invalid email or password.");
 
-        var token = _tokenService.GenerateToken(user.UserId, user.Email, user.Role, out var expiresAtUtc);
-        return Task.FromResult(new LoginResponse(token, expiresAtUtc, user.Role.ToString(), user.Email));
-    }
+        var passwordHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(request.Password)));
 
-    private static bool VerifyPassword(string plainText, string storedHash)
-    {
-        var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(plainText)));
-        return hash.Equals(storedHash, StringComparison.OrdinalIgnoreCase);
+        if (user is null || user.PasswordHash != passwordHash)
+            throw new ValidationException("Invalid email or password.");
+
+        var token = _tokenService.CreateToken(user.Email, user.Role, out var expiresAt);
+
+        return new LoginResponse
+        {
+            Token = token,
+            ExpiresAt = expiresAt,
+            Role = user.Role.ToString()
+        };
     }
 }
