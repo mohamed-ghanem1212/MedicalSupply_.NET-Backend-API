@@ -50,6 +50,7 @@ Infrastructure directly, which is the actual point of Clean Architecture
 (the inner layers don't know about the outer ones).
 
 ### Why no Repository/UnitOfWork pattern here
+
 Instead of a repository per entity plus a separate unit-of-work class,
 Application just depends on one small interface, `IAppDbContext`
 (`Application/Abstractions/IAppDbContext.cs`), which exposes the
@@ -81,7 +82,9 @@ output shows). The API applies the migration and seeds sample data
 automatically on startup.
 
 ### Switching to SQL Server
+
 In `appsettings.json`:
+
 ```json
 "Database": { "Provider": "SqlServer" },
 "ConnectionStrings": { "DefaultConnection": "Server=.;Database=MedicalSupplyDb;Trusted_Connection=True;TrustServerCertificate=True" }
@@ -91,28 +94,29 @@ In `appsettings.json`:
 
 Four hardcoded demo users, one per role, all using password `Passw0rd!`:
 
-| Email | Role |
-|---|---|
-| requester@company.com | Requester |
-| manager@company.com | DepartmentManager |
-| storekeeper@company.com | StoreKeeper |
-| admin@company.com | Administrator |
+| Email                   | Role              |
+| ----------------------- | ----------------- |
+| requester@company.com   | Requester         |
+| manager@company.com     | DepartmentManager |
+| storekeeper@company.com | StoreKeeper       |
+| admin@company.com       | Administrator     |
 
 ```
 POST /api/auth/login
 { "email": "requester@company.com", "password": "Passw0rd!" }
 ```
+
 Paste the returned `token` into Swagger's **Authorize** button.
 
 ## 5. RBAC - who can do what
 
-| Action | Allowed roles |
-|---|---|
-| Create/update department or item | Administrator |
-| Create/submit/cancel a request | Requester (cancel also allowed for DepartmentManager) |
-| Approve/reject a request | DepartmentManager |
-| Fulfill a request | StoreKeeper |
-| Administrator | can do everything |
+| Action                           | Allowed roles                                         |
+| -------------------------------- | ----------------------------------------------------- |
+| Create/update department or item | Administrator                                         |
+| Create/submit/cancel a request   | Requester (cancel also allowed for DepartmentManager) |
+| Approve/reject a request         | DepartmentManager                                     |
+| Fulfill a request                | StoreKeeper                                           |
+| Administrator                    | can do everything                                     |
 
 Enforced with `[Authorize(Roles = "...")]` on each controller action.
 
@@ -123,9 +127,11 @@ Services throw one of four exceptions
 `ValidationException`, `ConflictException`, `ForbiddenException`.
 `ExceptionHandlingMiddleware` (in the Api project) catches all of them
 in one place and returns a consistent JSON body:
+
 ```json
 { "code": "VALIDATION_ERROR", "message": "...", "traceId": "..." }
 ```
+
 Anything not one of those four falls through to a generic 500 so
 internal details are never leaked to the client.
 
@@ -140,29 +146,54 @@ catches and turns into a 409 Conflict asking the caller to retry. A
 plain incrementing `int` was used instead of SQL Server's `rowversion`
 column type specifically because it works the same way on SQLite too.
 
-## 8. Simplifications made (compared to a full implementation)
+## 8. Incomplete requirements and assumptions
 
-To keep the codebase something I can fully explain and defend, these
-were deliberately cut down from a fuller implementation:
+To keep the codebase something I can fully explain and defend, this
+version deliberately does less than a full implementation of every rule
+in the assessment spec. Listed as the doc's submission instructions ask:
 
-- **One approval step, not three.** Every request just needs
-  Department Manager approval - no separate Pharmacy or Finance stage,
-  no logic to decide which stages are needed.
+### Incomplete requirements (spec rules not implemented)
+
+- **Only one approval step**, not the spec's three-stage flow. Every
+  request just needs Department Manager approval — there's no separate
+  Pharmacy approval or Finance approval stage, and no logic to decide
+  which stages a request needs.
 - **No monthly budget enforcement.** `Department.MonthlyBudget` exists
-  as a field but submission doesn't check the request total against it.
-- **No approval audit table.** Instead of a separate `ApprovalRecords`
-  table, the decision is just stored directly on the request
+  as a field but request submission does not check the request total
+  against it, and submission is never rejected for exceeding it.
+- **No approval audit table.** The spec calls for a separate
+  `ApprovalRecords` table with one row per decision; this version stores
+  the single decision directly on the request instead
   (`DecisionBy`, `DecisionDate`, `RejectionReason`).
-- **No partial-approval quantities.** The quantity approved always
-  equals the quantity requested.
-- **Two roles fewer.** No separate Pharmacist/FinanceOfficer roles,
-  since there's nothing for them to approve.
-- **Four exception types, not a full hierarchy.** `NotFoundException`,
-  `ValidationException`, `ConflictException`, `ForbiddenException`
-  cover every case, instead of a specific class per error.
+- **No partial-approval quantities.** The spec allows an approved
+  quantity to differ from the requested quantity; here the approved
+  quantity always equals the requested quantity.
+- **No Pharmacist or FinanceOfficer roles.** Since there's no separate
+  approval stage for either, those roles from the spec's role table
+  aren't implemented.
+
+### Assumptions (where the spec was ambiguous and a judgment call was made)
+
+- **Cancellation authorization**: the spec doesn't name a role for this
+  operation. Allowed for `Requester` and `DepartmentManager` (plus
+  Administrator) as the most plausible owners of that decision.
+- **Fulfillment quantity** always equals the originally requested
+  quantity, since there's no partial-approval concept in this version.
+- **"Remaining budget"** isn't tracked at all (see above), so there was
+  no need to define what counts toward it — this is a full omission,
+  not a partial interpretation.
+
+### Deliberate code-simplicity choices (not spec gaps, just style)
+
+- **Four exception types, not a full hierarchy** —
+  `NotFoundException`, `ValidationException`, `ConflictException`,
+  `ForbiddenException` cover every case instead of a specific class per
+  error.
 - **Entities are plain data classes.** Business rules (stock checks,
   status transitions) live in the service methods, not in methods on
   the entities themselves.
+- **One `IAppDbContext` interface instead of a Repository/UnitOfWork
+  layer** — see Section 2 above for why.
 
 ## 9. Postman collection
 
